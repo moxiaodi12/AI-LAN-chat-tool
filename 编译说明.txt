@@ -1,0 +1,190 @@
+════════════════════════════════════════════
+  局域网 AI 聊天服务器  源码包 - 编译说明
+════════════════════════════════════════════
+
+【这个文件夹是什么】
+
+一个自包含的源码包。把它整个拷到任何一台装了 MinGW-w64 g++ 的
+Windows 64 位电脑上，运行 build.bat，就会在它的同级目录生成
+一个可以直接双击运行的 AI-Chat-Server 完整产物。
+
+    <任意目录>\
+    ├─ 源码\              ← 只拷这个文件夹过去
+    │   ├─ build.bat      一键：编译 + 组装产物
+    │   ├─ pack.ps1       组装脚本（由 build.bat 调用，也可单独跑）
+    │   ├─ server.cpp     主程序源码（C++17，单文件，约 1540 行）
+    │   ├─ json.hpp       第三方支持库：nlohmann/json 单头文件版
+    │   ├─ config.ini     配置模板
+    │   ├─ start.bat      启动脚本（进产物文件夹）
+    │   ├─ 使用说明.txt   给最终用户看的说明（进产物文件夹）
+    │   ├─ web\           网页界面源码 index.html
+    │   ├─ llama\         llama.cpp 推理引擎 + 全部运行库 DLL
+    │   ├─ models\        空，模型放这里（见下方"模型"一节）
+    │   ├─ cdp_test.ps1   浏览器调试脚本（开发用）
+    │   └─ e2e_test.ps1   接口测试脚本（需服务器已启动）
+    └─ AI-Chat-Server\    ← 编译后自动生成的产物，拷到任何电脑即用
+
+
+【编译产物】
+
+    ..\AI-Chat-Server\
+        server.exe        刚编译出来的主程序（静态链接，不依赖运行库）
+        config.ini
+        start.bat
+        web\index.html
+        llama\            llama-server.exe 及全部 DLL
+        models\           GGUF 模型（需自行放入）
+        server.log        首次运行后自动生成
+
+build.bat 会用增量复制同步 web\ 和 llama\，只覆盖有变化的文件，
+并且 **不会删除** 产物文件夹里已有的东西 —— 特别是 models\ 里的
+模型文件，反复编译也不会丢。
+
+
+════════════════════════════════════════════
+  一、安装编译环境（MinGW-w64）
+════════════════════════════════════════════
+本程序用 MinGW-w64 (g++) 静态编译，不能用 MSVC（cl.exe）。
+推荐 WinLibs 版（免安装，解压即用）：
+
+  下载页：https://winlibs.com/
+  选 "UCRT runtime" + "x86_64" 的 ZIP 包（GCC 13 及以上都可用）
+
+步骤：
+  1. 解压到 不含空格和中文 的路径，例如 C:\mingw64
+     （解压后应有 C:\mingw64\bin\g++.exe）
+  2. 把 C:\mingw64\bin 加入系统环境变量 PATH
+     设置 → 系统 → 关于 → 高级系统设置 → 环境变量
+     在"系统变量"里选中 Path → 编辑 → 新建 → C:\mingw64\bin
+  3. 新开一个命令行窗口验证：g++ --version
+
+不想改 PATH 也行，用环境变量直接指定：
+    set GXX_OVERRIDE=C:\mingw64\bin\g++.exe
+build.bat 会优先采用它。
+
+
+════════════════════════════════════════════
+  二、编译
+════════════════════════════════════════════
+双击 源码\build.bat 即可。它会：
+    1. 自动查找 g++（依次尝试 GXX_OVERRIDE、PATH、常见安装位置）
+    2. 检查 server.exe 是否正在运行（运行中会提示先关掉）
+    3. 编译 server.cpp → ..\AI-Chat-Server\server.exe
+    4. 调用 pack.ps1 把 web\ llama\ models\ config.ini start.bat
+       使用说明.txt 同步进产物文件夹
+    5. 检查模型是否存在，没有会给出提示
+
+只想编译不组装：build.bat compile
+
+手动命令行等价于：
+
+    g++ -O2 -std=c++17 -static -static-libgcc -static-libstdc++ -s ^
+        -o "..\AI-Chat-Server\server.exe" server.cpp ^
+        -lws2_32 -liphlpapi -lwinpthread
+
+参数说明：
+    -O2                优化等级
+    -std=c++17         必须。源码用到 C++17 特性
+    -static            全静态链接
+    -static-libgcc     静态链接 GCC 运行库
+    -static-libstdc++  静态链接 C++ 标准库
+    -s                 剥离符号表，显著减小体积
+    -lws2_32           Winsock 网络库
+    -liphlpapi         取本机网卡 IP（用于显示局域网地址）
+    -lwinpthread       MinGW 线程库
+
+编译约 10~30 秒。
+
+注意：build.bat 里的提示信息刻意只用英文（纯 ASCII）。
+这是为了避免中文在 cmd 的不同代码页下变成乱码。中文说明都在
+本文件里。pack.ps1 是 UTF-8 with BOM 保存的，中文文件名正常。
+
+
+════════════════════════════════════════════
+  三、依赖说明（为什么这个包能自包含）
+════════════════════════════════════════════
+编译期依赖 —— 只有两样：
+  · Windows 系统自带头文件 winsock2.h / ws2tcpip.h / windows.h / iphlpapi.h
+  · json.hpp（已在本文件夹内，无需下载）
+  链接库只有系统自带的 ws2_32、iphlpapi、winpthread。
+
+llama\ 不是编译期依赖：
+  server.exe 在运行时用 CreateProcessA 把 llama\llama-server.exe
+  拉起来当子进程，通过本机 HTTP 端口通信（见 server.cpp:401、:1417）。
+  所以编译时不需要 llama 的头文件或导入库，升级 llama.cpp
+  或换模型都不用重新编译。
+
+llama\ 里的 msvcp140.dll / vcruntime140.dll 等已随包提供，
+产物拷到干净电脑上不需要装 VC++ 运行库。
+
+
+════════════════════════════════════════════
+  四、模型（重要）
+════════════════════════════════════════════
+模型 GGUF 文件（约 882MB）没有放进源码包，需要单独处理：
+
+  方式一（推荐）：直接放到产物文件夹
+      ..\AI-Chat-Server\models\DeepSeek-R1-Distill-Qwen-1.5B-Q3_K_M.gguf
+      现有 AI-Chat-Server 里已经有这个文件，不用动。
+
+  方式二：放到源码包的 models\ 里
+      这样每次 build.bat 组装时会自动带进产物。
+      适合想连模型一起打包分发的情况。
+
+build.bat 组装完会检查产物 models\ 里有没有 .gguf，
+没有的话会打印提示并告诉你要放哪个文件名（从 config.ini 里读）。
+
+换模型：把 gguf 放进 models\，改 config.ini 的 Model 一行，重启。
+
+
+════════════════════════════════════════════
+  五、编译后如何运行
+════════════════════════════════════════════
+双击 ..\AI-Chat-Server\start.bat，控制台会打印访问地址：
+
+    本机访问:    http://127.0.0.1:9090
+    局域网访问:  http://192.168.x.x:9090
+
+把局域网地址发给同事，用浏览器打开即可聊天。
+服务器控制台支持命令：quit/q 退出、status 看队列、help 帮助。
+
+
+════════════════════════════════════════════
+  六、验证编译结果
+════════════════════════════════════════════
+1. 服务器启动后控制台出现"正在启动 AI 引擎"且无报错
+2. 浏览器打开 http://127.0.0.1:9090 能正常对话
+3. 在源码文件夹里跑接口测试：
+     powershell -ExecutionPolicy Bypass -File .\e2e_test.ps1
+   测完会打印每轮的 state / tokens / 回答内容
+
+
+════════════════════════════════════════════
+  七、常见编译错误
+════════════════════════════════════════════
+g++ not found / 'g++' 不是内部或外部命令
+  → PATH 没生效。重开命令行窗口，或设 GXX_OVERRIDE。
+
+fatal error: json.hpp: No such file or directory
+  → json.hpp 必须和 server.cpp 在同一文件夹。别单独把 server.cpp 拷走。
+
+fatal error: winsock2.h / windows.h: No such file or directory
+  → 用的是 MSVC 或残缺的 MinGW。确认 g++ 来自 mingw64\bin。
+
+undefined reference to `__imp_WSAStartup'
+  → 漏了 -lws2_32（用 build.bat 不会出现）。
+
+undefined reference to `GetAdaptersAddresses'
+  → 漏了 -liphlpapi。
+
+产物在别的电脑上提示缺少 libstdc++-6.dll
+  → 漏了 -static 和 -static-libstdc++。用 build.bat 的完整参数重编。
+
+error: 'xxx' was not declared / 语法错误
+  → 漏了 -std=c++17。
+
+[ERROR] server.exe is currently running
+  → 服务器还开着，关掉那个窗口再编译（否则覆盖不了 exe）。
+
+组装阶段报 robocopy 退出码 >= 8
+  → 目标文件被占用（多半是服务器还开着），或磁盘空间不足。
